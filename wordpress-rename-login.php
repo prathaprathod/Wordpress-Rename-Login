@@ -368,7 +368,7 @@ if ( defined( 'ABSPATH' ) && ! class_exists( 'Wordpress_Rename_Login' ) ) {
 		}
 
 		public function welcome_email( $value ) {
-			return $value = str_replace( 'wp-login.php', trailingslashit( get_site_option( 'wrl_page', 'login' ) ), $value );
+			return $value = str_replace( 'wp-login.php', trailingslashit( get_site_option( 'wrl_page', 'loginurl' ) ), $value );
 		}
 
 		public function forbidden_slugs() {

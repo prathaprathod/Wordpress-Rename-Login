@@ -1,7 +1,7 @@
 === Wordpress Rename Login ===
 
 Contributors:      Prathap Rathod 
-Tags:              rename, login, wp-login, wp-login.php, Rename Login
+Tags:              login, login url, rename wp, wp login, rename login
 Requires at least: 4.5
 Tested up to:      4.9.8
 Stable tag:        1.1.0

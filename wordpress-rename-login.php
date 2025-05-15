@@ -139,7 +139,7 @@ class WP_Rename_Login {
 						<th scope="row">New Login Slug</th>
 						<td>
 							<input type="text" name="wp_rename_login_slug" value="<?php echo esc_attr( get_option( 'wp_rename_login_slug', $this->default_slug ) ); ?>" />
-							<p class="description">Example: If you enter <strong>login123</strong>, your new login URL will be <code><?php echo home_url(); ?>/login123</code></p>
+							<p class="description">Example: If you enter <strong>secure-login</strong>, your new login URL will be <code><?php echo home_url(); ?>/login123</code></p>
 						</td>
 					</tr>
 				</table>

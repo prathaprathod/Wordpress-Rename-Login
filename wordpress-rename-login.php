@@ -12,370 +12,142 @@
  * License:     GPL-3.0+
  */
 
-if ( defined( 'ABSPATH' ) && ! class_exists( 'Wordpress_Rename_Login' ) ) {
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
-	class Wordpress_Rename_Login {
-		private $wp_login_php;
+class WP_Rename_Login {
+	private $default_slug = 'my-login';
+	private $wp_login_php = false;
 
-		private function basename() {
-			return plugin_basename( __FILE__ );
+	public function __construct() {
+		add_action( 'plugins_loaded', array( $this, 'plugins_loaded' ) );
+		add_action( 'wp_loaded', array( $this, 'wp_loaded' ) );
+		add_filter( 'site_url', array( $this, 'site_url' ), 10, 4 );
+		add_filter( 'network_site_url', array( $this, 'network_site_url' ), 10, 3 );
+		add_filter( 'wp_redirect', array( $this, 'wp_redirect' ), 10, 2 );
+		add_filter( 'update_welcome_email', array( $this, 'welcome_email' ) );
+
+		// Admin settings
+		add_action( 'admin_menu', array( $this, 'add_settings_page' ) );
+		add_action( 'admin_init', array( $this, 'register_settings' ) );
+	}
+
+	public function plugins_loaded() {
+		global $pagenow;
+
+		load_plugin_textdomain( 'wordpress-rename-login' );
+
+		if (
+			! is_multisite() && (
+				strpos( $_SERVER['REQUEST_URI'], 'wp-signup' ) !== false ||
+				strpos( $_SERVER['REQUEST_URI'], 'wp-activate' ) !== false
+			)
+		) {
+			wp_die( __( 'This feature is not enabled.', 'wordpress-rename-login' ) );
 		}
 
-		private function path() {
-			return trailingslashit( dirname( __FILE__ ) );
-		}
+		$request = parse_url( $_SERVER['REQUEST_URI'] );
 
-		private function use_trailing_slashes() {
-			return '/' === substr( get_option( 'permalink_structure' ), -1, 1 );
-		}
-
-		private function user_trailingslashit( $string ) {
-			return $this->use_trailing_slashes() ? trailingslashit( $string ) : untrailingslashit( $string );
-		}
-
-		private function wp_template_loader() {
-			global $pagenow;
-
+		if ( (
+				strpos( $_SERVER['REQUEST_URI'], 'wp-login.php' ) !== false ||
+				untrailingslashit( $request['path'] ) === site_url( 'wp-login', 'relative' )
+			) &&
+			! is_admin()
+		) {
+			$this->wp_login_php = true;
+			$_SERVER['REQUEST_URI'] = $this->user_trailingslashit( '/' . str_repeat( '-/', 10 ) );
 			$pagenow = 'index.php';
-
-			if ( ! defined( 'WP_USE_THEMES' ) ) {
-				define( 'WP_USE_THEMES', true );
-			}
-
-			wp();
-
-			if ( $_SERVER['REQUEST_URI'] === $this->user_trailingslashit( str_repeat( '-/', 10 ) ) ) {
-				$_SERVER['REQUEST_URI'] = $this->user_trailingslashit( '/wp-login-php/' );
-			}
-
-			require_once( ABSPATH . WPINC . '/template-loader.php' );
-
-			die;
-		}
-
-		private function new_login_slug() {
-			if (
-				( $slug = get_option( 'wrl_page' ) ) || (
-					is_multisite() &&
-					is_plugin_active_for_network( $this->basename() ) &&
-					( $slug = get_site_option( 'wrl_page', 'login' ) )
-				) ||
-				( $slug = 'login' )
-			) {
-				return $slug;
-			}
-		}
-
-		public function new_login_url( $scheme = null ) {
-			if ( get_option( 'permalink_structure' ) ) {
-				return $this->user_trailingslashit( home_url( '/', $scheme ) . $this->new_login_slug() );
-			} else {
-				return home_url( '/', $scheme ) . '?' . $this->new_login_slug();
-			}
-		}
-
-		public function __construct() {
-			global $wp_version;
-
-			if ( version_compare( $wp_version, '4.0-RC1-src', '<' ) ) {
-				add_action( 'admin_notices', array( $this, 'admin_notices_incompatible' ) );
-				add_action( 'network_admin_notices', array( $this, 'admin_notices_incompatible' ) );
-
-				return;
-			}
-
-			register_activation_hook( $this->basename(), array( $this, 'activate' ) );
-			register_uninstall_hook( $this->basename(), array( 'Wordpress_Rename_Login', 'uninstall' ) );
-
-			add_action( 'admin_init', array( $this, 'admin_init' ) );
-			add_action( 'admin_notices', array( $this, 'admin_notices' ) );
-			add_action( 'network_admin_notices', array( $this, 'admin_notices' ) );
-
-			if ( is_multisite() && ! function_exists( 'is_plugin_active_for_network' ) ) {
-				require_once( ABSPATH . '/wp-admin/includes/plugin.php' );
-			}
-
-			add_filter( 'plugin_action_links_' . $this->basename(), array( $this, 'plugin_action_links' ) );
-
-			if ( is_multisite() && is_plugin_active_for_network( $this->basename() ) ) {
-				add_filter( 'network_admin_plugin_action_links_' . $this->basename(), array( $this, 'plugin_action_links' ) );
-
-				add_action( 'wpmu_options', array( $this, 'wpmu_options' ) );
-				add_action( 'update_wpmu_options', array( $this, 'update_wpmu_options' ) );
-			}
-
-			add_action( 'plugins_loaded', array( $this, 'plugins_loaded' ), 1 );
-			add_action( 'wp_loaded', array( $this, 'wp_loaded' ) );
-
-			add_filter( 'site_url', array( $this, 'site_url' ), 10, 4 );
-			add_filter( 'network_site_url', array( $this, 'network_site_url' ), 10, 3 );
-			add_filter( 'wp_redirect', array( $this, 'wp_redirect' ), 10, 2 );
-
-			add_filter( 'site_option_welcome_email', array( $this, 'welcome_email' ) );
-
-			remove_action( 'template_redirect', 'wp_redirect_admin_locations', 1000 );
-		}
-
-		public function admin_notices_incompatible() {
-			echo '<div class="error"><p>' . sprintf( __( 'Please upgrade to the latest version of WordPress to activate %s.', 'wordpress-rename-login' ), '<strong>' . __( 'Wordpress Rename Login', 'wordpress-rename-login' ) . '</strong>' ) . '</p></div>';
-		}
-
-		public function activate() {
-			add_option( 'wrl_redirect', '1' );
-			delete_option( 'wrl_admin' );
-		}
-
-		public static function uninstall() {
-			global $wpdb;
-
-			if ( is_multisite() ) {
-				$blogs = $wpdb->get_col( "SELECT blog_id FROM {$wpdb->blogs}" );
-
-				if ( $blogs ) {
-					foreach ( $blogs as $blog ) {
-						switch_to_blog( $blog );
-						delete_option( 'wrl_page' );
-					}
-
-					restore_current_blog();
-				}
-
-				delete_site_option( 'wrl_page' );
-			} else {
-				delete_option( 'wrl_page' );
-			}
-		}
-
-		public function wpmu_options() {
-			$out = '';
-
-			$out .= '<h3>' . __( 'Wordpress Rename Login', 'wordpress-rename-login' ) . '</h3>';
-			$out .= '<p>' . __( 'This option allows you to set a networkwide default, which can be overridden by individual sites. Simply go to to the site’s permalink settings to change the url.', 'wordpress-rename-login' ) . '</p>';
-			$out .= '<table class="form-table">';
-				$out .= '<tr valign="top">';
-					$out .= '<th scope="row">' . __( 'Networkwide default', 'wordpress-rename-login' ) . '</th>';
-					$out .= '<td><input id="wrl-page-input" type="text" name="wrl_page" value="' . get_site_option( 'wrl_page', 'login' )  . '"></td>';
-				$out .= '</tr>';
-			$out .= '</table>';
-
-			echo $out;
-		}
-
-		public function update_wpmu_options() {
-			if (
-				( $wrl_page = sanitize_title_with_dashes( $_POST['wrl_page'] ) ) &&
-				strpos( $wrl_page, 'wp-login' ) === false &&
-				! in_array( $wrl_page, $this->forbidden_slugs() )
-			) {
-				update_site_option( 'wrl_page', $wrl_page );
-			}
-		}
-
-		public function admin_init() {
-			global $pagenow;
-
-			add_settings_section(
-				'wordpress-rename-login-section',
-				__( 'Wordpress Rename Login', 'wordpress-rename-login' ),
-				array( $this, 'wrl_section_desc' ),
-				'permalink'
-			);
-
-			add_settings_field(
-				'wrl-page',
-				'<label for="wrl-page">' . __( 'Change Login URL', 'wordpress-rename-login' ) . '</label>',
-				array( $this, 'wrl_page_input' ),
-				'permalink',
-				'wordpress-rename-login-section'
-			);
-
-			if ( isset( $_POST['wrl_page'] ) && $pagenow === 'options-permalink.php' ) {
-				if (
-					( $wrl_page = sanitize_title_with_dashes( $_POST['wrl_page'] ) ) &&
-					strpos( $wrl_page, 'wp-login' ) === false &&
-					! in_array( $wrl_page, $this->forbidden_slugs() )
-				) {
-					if ( is_multisite() && $wrl_page === get_site_option( 'wrl_page', 'login' ) ) {
-						delete_option( 'wrl_page' );
-					} else {
-						update_option( 'wrl_page', $wrl_page );
-					}
-				}
-			}
-
-			if ( get_option( 'wrl_redirect' ) ) {
-				delete_option( 'wrl_redirect' );
-
-				if ( is_multisite() && is_super_admin() && is_plugin_active_for_network( $this->basename() ) ) {
-					$redirect = network_admin_url( 'settings.php#wrl-page-input' );
-				} else {
-					$redirect = admin_url( 'options-permalink.php#wrl-page-input' );
-				}
-
-				wp_safe_redirect( $redirect );
-
-				die;
-			}
-		}
-
-		public function wrl_section_desc() {
-			$out = '';
-
-			if ( is_multisite() && is_super_admin() && is_plugin_active_for_network( $this->basename() ) ) {
-				$out .= '<p>' . sprintf( __( 'To set a networkwide default, go to %s.', 'wordpress-rename-login' ), '<a href="' . network_admin_url( 'settings.php#wrl-page-input' ) . '">' . __( 'Network Settings', 'wordpress-rename-login' ) . '</a>') . '</p>';
-			}
-
-			echo $out;
-		}
-
-		public function wrl_page_input() {
-			if ( get_option( 'permalink_structure' ) ) {
-				echo '<code>' . trailingslashit( home_url() ) . '</code> <input id="wrl-page-input" type="text" name="wrl_page" value="' . $this->new_login_slug()  . '">' . ( $this->use_trailing_slashes() ? ' <code>/</code>' : '' );
-			} else {
-				echo '<code>' . trailingslashit( home_url() ) . '?</code> <input id="wrl-page-input" type="text" name="wrl_page" value="' . $this->new_login_slug()  . '">';
-			}
-		}
-
-		public function admin_notices() {
-			global $pagenow;
-
-			if ( ! is_network_admin() && $pagenow === 'options-permalink.php' && isset( $_GET['settings-updated'] ) ) {
-				echo '<div class="updated"><p>' . sprintf( __( 'Your login page is now here: %s. Bookmark this page!', 'wordpress-rename-login' ), '<strong><a href="' . $this->new_login_url() . '">' . $this->new_login_url() . '</a></strong>' ) . '</p></div>';
-			}
-		}
-
-		public function plugin_action_links( $links ) {
-			if ( is_network_admin() && is_plugin_active_for_network( $this->basename() ) ) {
-				array_unshift( $links, '<a href="' . network_admin_url( 'settings.php#wrl-page-input' ) . '">' . __( 'Settings', 'wordpress-rename-login' ) . '</a>' );
-			} elseif ( ! is_network_admin() ) {
-				array_unshift( $links, '<a href="' . admin_url( 'options-permalink.php#wrl-page-input' ) . '">' . __( 'Settings', 'wordpress-rename-login' ) . '</a>' );
-			}
-
-			return $links;
-		}
-
-		public function plugins_loaded() {
-			global $pagenow;
-
-			load_plugin_textdomain( 'wordpress-rename-login' );
-
-			if (
-				! is_multisite() && (
-					strpos( $_SERVER['REQUEST_URI'], 'wp-signup' ) !== false ||
-					strpos( $_SERVER['REQUEST_URI'], 'wp-activate' ) !== false
-				)
-			) {
-				wp_die( __( 'This feature is not enabled.', 'wordpress-rename-login' ) );
-			}
-
-			$request = parse_url( $_SERVER['REQUEST_URI'] );
-
-			if ( (
-					strpos( $_SERVER['REQUEST_URI'], 'wp-login.php' ) !== false ||
-					untrailingslashit( $request['path'] ) === site_url( 'wp-login', 'relative' )
-				) &&
-				! is_admin()
-			) {
-				$this->wp_login_php = true;
-				$_SERVER['REQUEST_URI'] = $this->user_trailingslashit( '/' . str_repeat( '-/', 10 ) );
-				$pagenow = 'index.php';
-			} elseif (
-				untrailingslashit( $request['path'] ) === home_url( $this->new_login_slug(), 'relative' ) || (
-					! get_option( 'permalink_structure' ) &&
-					isset( $_GET[$this->new_login_slug()] ) &&
-					empty( $_GET[$this->new_login_slug()] )
-			) ) {
-				$pagenow = 'wp-login.php';
-			}
-		}
-
-		public function wp_loaded() {
-			global $pagenow;
-
-			if ( is_admin() && ! is_user_logged_in() && ! defined( 'DOING_AJAX' ) ) {
-				wp_die( __( 'You must log in to access the admin area.', 'wordpress-rename-login' ) );
-			}
-
-			$request = parse_url( $_SERVER['REQUEST_URI'] );
-
-			if (
-				$pagenow === 'wp-login.php' &&
-				$request['path'] !== $this->user_trailingslashit( $request['path'] ) &&
-				get_option( 'permalink_structure' )
-			) {
-				wp_safe_redirect( $this->user_trailingslashit( $this->new_login_url() ) . ( ! empty( $_SERVER['QUERY_STRING'] ) ? '?' . $_SERVER['QUERY_STRING'] : '' ) );
-				die;
-			} elseif ( $this->wp_login_php ) {
-				if (
-					( $referer = wp_get_referer() ) &&
-					strpos( $referer, 'wp-activate.php' ) !== false &&
-					( $referer = parse_url( $referer ) ) &&
-					! empty( $referer['query'] )
-				) {
-					parse_str( $referer['query'], $referer );
-
-					if (
-						! empty( $referer['key'] ) &&
-						( $result = wpmu_activate_signup( $referer['key'] ) ) &&
-						is_wp_error( $result ) && (
-							$result->get_error_code() === 'already_active' ||
-							$result->get_error_code() === 'blog_taken'
-					) ) {
-						wp_safe_redirect( $this->new_login_url() . ( ! empty( $_SERVER['QUERY_STRING'] ) ? '?' . $_SERVER['QUERY_STRING'] : '' ) );
-						die;
-					}
-				}
-
-				$this->wp_template_loader();
-			} elseif ( $pagenow === 'wp-login.php' ) {
-				global $error, $interim_login, $action, $user_login;
-
-				@require_once ABSPATH . 'wp-login.php';
-
-				die;
-			}
-		}
-
-		public function site_url( $url, $path, $scheme, $blog_id ) {
-			return $this->filter_wp_login_php( $url, $scheme );
-		}
-
-		public function network_site_url( $url, $path, $scheme ) {
-			return $this->filter_wp_login_php( $url, $scheme );
-		}
-
-		public function wp_redirect( $location, $status ) {
-			return $this->filter_wp_login_php( $location );
-		}
-
-		public function filter_wp_login_php( $url, $scheme = null ) {
-			if ( strpos( $url, 'wp-login.php' ) !== false ) {
-				if ( is_ssl() ) {
-					$scheme = 'https';
-				}
-
-				$args = explode( '?', $url );
-
-				if ( isset( $args[1] ) ) {
-					parse_str( $args[1], $args );
-					$url = add_query_arg( $args, $this->new_login_url( $scheme ) );
-				} else {
-					$url = $this->new_login_url( $scheme );
-				}
-			}
-
-			return $url;
-		}
-
-		public function welcome_email( $value ) {
-			return $value = str_replace( 'wp-login.php', trailingslashit( get_site_option( 'wrl_page', 'loginurl' ) ), $value );
-		}
-
-		public function forbidden_slugs() {
-			$wp = new WP;
-			return array_merge( $wp->public_query_vars, $wp->private_query_vars );
 		}
 	}
 
-	new Wordpress_Rename_Login;
+	public function wp_loaded() {
+		if ( $this->wp_login_php ) {
+			$this->wp_template_loader();
+		}
+	}
+
+	private function wp_template_loader() {
+		require_once ABSPATH . 'wp-login.php';
+		exit;
+	}
+
+	private function new_login_url( $scheme = null ) {
+		return site_url( $this->new_login_slug(), $scheme );
+	}
+
+	private function new_login_slug() {
+		return get_option( 'wp_rename_login_slug', $this->default_slug );
+	}
+
+	public function site_url( $url, $path, $scheme, $blog_id ) {
+		if ( $path === 'wp-login.php' || $path === 'wp-login.php?action=register' ) {
+			return $this->new_login_url( $scheme );
+		}
+		return $url;
+	}
+
+	public function network_site_url( $url, $path, $scheme ) {
+		if ( $path === 'wp-login.php' || $path === 'wp-login.php?action=register' ) {
+			return $this->new_login_url( $scheme );
+		}
+		return $url;
+	}
+
+	public function wp_redirect( $location, $status ) {
+		if ( strpos( $location, 'wp-login.php' ) !== false ) {
+			return $this->new_login_url();
+		}
+		return $location;
+	}
+
+	public function welcome_email( $welcome_email ) {
+		return str_replace( 'wp-login.php', $this->new_login_slug(), $welcome_email );
+	}
+
+	private function user_trailingslashit( $string ) {
+		return trailingslashit( $string );
+	}
+
+	public function add_settings_page() {
+		add_options_page(
+			'Rename Login',
+			'Rename Login',
+			'manage_options',
+			'wp-rename-login',
+			array( $this, 'settings_page_html' )
+		);
+	}
+
+	public function register_settings() {
+		register_setting( 'wp_rename_login_settings', 'wp_rename_login_slug', array(
+			'type' => 'string',
+			'sanitize_callback' => 'sanitize_title',
+			'default' => $this->default_slug
+		) );
+	}
+
+	public function settings_page_html() {
+		?>
+		<div class="wrap">
+			<h1>Rename Login Settings</h1>
+			<form method="post" action="options.php">
+				<?php settings_fields( 'wp_rename_login_settings' ); ?>
+				<?php do_settings_sections( 'wp_rename_login_settings' ); ?>
+				<table class="form-table">
+					<tr valign="top">
+						<th scope="row">New Login Slug</th>
+						<td>
+							<input type="text" name="wp_rename_login_slug" value="<?php echo esc_attr( get_option( 'wp_rename_login_slug', $this->default_slug ) ); ?>" />
+							<p class="description">Example: If you enter <strong>login123</strong>, your new login URL will be <code><?php echo home_url(); ?>/login123</code></p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button(); ?>
+			</form>
+		</div>
+		<?php
+	}
 }
+
+new WP_Rename_Login();
